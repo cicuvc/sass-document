@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## What this repo is
-Data-only repo: two nvdisasm-dumped ISA description files for the **Hopper (sm_90)** SASS instruction set. There is no build/test/lint — do not look for a package manager, CI, or entrypoints. Work here is *reading and interpreting* these files to reconstruct how to decode SASS instructions (encoding, functional-unit grouping, latencies).
+Reverse-engineering repo built around two nvdisasm-dumped ISA description files for the **Hopper (sm_90)** SASS instruction set. There is no build/test/lint — do not look for a package manager, CI, or entrypoints. The work is *reading and interpreting* these files to reconstruct how to decode SASS instructions (encoding, functional-unit grouping, latencies) and writing per-instruction reference docs. Tooling (`tools/`) + research notes (`notes/`) + a doc checklist (`TODO.md`) sit on top of the raw dumps.
 
 - `sm_90_instructions.txt` (~159k lines) — full instruction/encoding spec.
 - `sm_90_latencies.txt` (~441 lines) — pipe grouping, scoreboard/latency tables.
@@ -15,6 +15,13 @@ A stdlib-only extractor turns the spec into a queryable JSON DB — prefer it ov
 - Regenerate `sm90.json` after any parser change; trust the validation gate (asserts opcode presence + bit ranges ⊆[0,127] + width==Σ span per field).
 
 Parser gotchas already handled (don't reintroduce): sub-section keywords and even the next `CLASS` can be **glued after `;` with no newline** (`;OPCODES`, `ENCODING!..._unused`, `;CLASS "..."`); multiple `BITS_` statements may share one physical line; field names can contain digits, so bit-pairs are consumed until their count equals the declared width; `imad_pseudo_*` classes carry a `REMAP "..."` directive instead of `BITS_` (no opcode field — expected).
+
+## Documentation workflow (current effort)
+Goal: write a per-instruction reference doc for every **compute** SASS instruction. Split across sessions.
+- `TODO.md` — the master checklist (**207 instructions**), grouped by category, one checkbox per entry. Derived from `ref_memo.txt` (the curated sm_70..sm_90 opcode roster). Texture/surface/graphics instructions and pseudo/lowered opcodes are intentionally excluded (see its "Excluded" section). `-> MNEM` tags map ref_memo names to the canonical sm_90 mnemonic (shape/width/uniform/extended variants collapse to one instruction, so their docs may be consolidated). `LDCU` is unresolved (likely an LDC variant).
+- `notes/*.md` — enum/topic research already resolved (`ldc_admode`, `iswz`, `cbu_state`, `memory_model`). Each records: spec-grounded facts, external-reference reconciliation, empirical corroboration (cuobjdump mining), and open questions. Follow this style for new findings.
+- When documenting an instruction: drive from `sm90.json` via `query_sm90.py` (`mnem`/`class -v`/`layout`), cross-check pipe/latency, and empirically confirm operand rendering with `cuobjdump -arch sm_90 -sass` on `/usr/local/cuda/lib64/libcublas*.so*` when the form is common (rare/driver-internal forms won't appear). Tick the box in `TODO.md` when done.
+- `sm90.json` is gitignored/regenerable; `ref_memo.txt` uses a ROT13 column that is not the mnemonic (mnemonic is the 3rd column).
 
 ## Critical gotchas
 - The header says `ARCHITECTURE "Volta"` and `WORD_SIZE 64`, but this is the **sm_90** file and each SASS instruction is **16 bytes / 128 bits** (`FUNIT uC` -> `ENCODING WIDTH 128`; bit positions in `BITS_*`/`FUNIT` masks run [127:0], MSB-left). Trust the 128-bit width, not `WORD_SIZE`.
