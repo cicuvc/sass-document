@@ -1,0 +1,209 @@
+# IADD3 — Three-Input Integer Add
+
+**Opcode mnemonic:** `IADD3`  
+**Pipe:** `int_pipe` (integer execution pipe)  
+**INSTRUCTION_TYPE:** `INST_TYPE_COUPLED_MATH`
+
+---
+
+## Variant overview
+
+IADD3 performs `Rd = Ra + (±)Sb + (±)Rc` (three-input add/subtract) on 32-bit integers.
+All variants share the mnemonic `IADD3`; the extended (X) form adds carry-chain predicates.
+Related: `IADD` (two-input add alias), `IADD32I` (pipe-only alias), `UIADD3` (uniform variant).
+
+| Mode   | ASM format | Operands | Carry preds |
+|--------|-----------|:---:|:---:|
+| **Plain** | `IADD3 Rd, Pu, Pv, [-]Ra, [-]Rb, [-]Rc` | 3-source with per-src negate | — |
+| **X**      | `IADD3.X Rd, Pu, Pv, [~]Ra, [~]Rb, [~]Rc, [!]Pp, [!]Pq` | 3-source with per-src invert | `Pp,Pq` |
+
+- **Plain**: `Rd = (±Ra) + (±Rb) + (±Rc)`. Ra and Rb cannot be simultaneously
+  negated (`Ra@negate → ¬Rb@negate` and vice versa). Rc negate is independent.
+- **X**: extended-precision carry chain. Uses `[~]` (bitwise NOT/ones-complement)
+  instead of `[-]` (two's complement negate). Pp and Pq capture carry bits.
+  Ra and Rb cannot both be inverted (`Ra@invert → ¬Rb@invert`).
+
+### Uniform variant: UIADD3
+
+`UIADD3` / `UIADD3.X` uses uniform registers and executes on `udp_pipe`. Same
+semantics but with `UniformRegister` and `UniformPredicate` types. Two operand
+forms: URURUR and URsIUR.
+
+---
+
+## Operand forms (5 plain, 1 immediate)
+
+| Form   | Ra  | Sb             | Rc  | opcode (13-bit) |
+|--------|-----|----------------|-----|:---:|
+| RRR    | Reg | Reg            | Reg | `0b_0001000010000` (0x210) |
+| RsIR   | Reg | SImm(32)       | Reg | `0b_0100000010000` (0x810) |
+| RCR    | Reg | Cb             | Reg | `0b_0010100010000` (0xa10) |
+| RCxR   | Reg | CXb            | Reg | `0b_0110100010000` (0x1a10) |
+| RUR    | Reg | URb            | Reg | `0b_0111000010000` (0x1c10) |
+
+No multi-register or HI/WIDE forms (always 32-bit). X forms share the same
+opcodes, distinguished by the `/XONLY:X` modifier in the encoding.
+
+---
+
+## ENCODING layout (128-bit, MSB-left)
+
+Shown for `iadd3_noimm__RRR_RRR`; the `imm` form differs only in Sb encoding.
+
+| Bits                | Width | Field            | Source | Notes |
+|---------------------|:-----:|------------------|--------|-------|
+| [124:122],[109:105] | 8     | `opex`           | `TABLES_opex_4(...)` | reuse/drain control |
+| [121:116]           | 6     | `req_bit_set`    | `req_bit_set` | barrier mask |
+| [115:113]           | 3     | `src_rel_sb`     | `*7` | fixed (no SB release) |
+| [112:110]           | 3     | `dst_wr_sb`      | `*7` | fixed (no SB write) |
+| [103:102]           | 2     | `pm_pred`        | `pm_pred` | perf-monitor |
+| **[91],[11:0]**     | **13**| **`opcode`**     | **Opcode** | |
+| [90]                | 1     | `input_reg_sz_32_dist` | `*1` (plain) / `Pp@not` (X) | |
+| [89:87]             | 3     | `Pnz`            | `*7` (plain) / `Pp` (X) | X: carry-out pred |
+| [86:84]             | 3     | `cop`            | `Pv` | **3rd predicate input** |
+| [83:81]             | 3     | `Pu`             | `Pu` | **2nd predicate input** |
+| [80]                | 1     | `UPq_not`        | `*1` (plain) / `Pq@not` (X) | |
+| [79:77]             | 3     | `UPq`            | `*7` (plain) / `Pq` (X) | X: 2nd carry-out pred |
+| **[75]**            | **1** | `sz`             | `Rc@negate` (plain) / `Rc@invert` (X) | |
+| [74]                | 1     | `sh`             | `0` (plain) / `*X` (X) | |
+| **[72]**            | **1** | `e`              | `Ra@negate` (plain) / `Ra@invert` (X) | |
+| [71:64]             | 8     | `Rc`             | `Rc` | |
+| **[63]**            | **1** | `Sb_invert`      | `Rb@negate` (plain) / `Rb@invert` (X) | |
+| [39:32]             | 8     | `Rb`             | `Rb` | (or SImm[31:24] in imm form) |
+| [31:24]             | 8     | `Ra`             | `Ra` | |
+| [23:16]             | 8     | `Rd`             | `Rd` | |
+| [15]                | 1     | `Pg_not`         | `Pg@not` | |
+| [14:12]             | 3     | `Pg`             | `Pg` | guard predicate |
+
+### Immediate form differences
+
+- `Rb` at [39:32] is replaced by the upper bits of `SImm(32)*:Sb`; the full
+  32-bit immediate occupies [63:32] as `Ra_offset`.
+- `TABLES_opex_3(batch_t, usched_info, reuse_src_a, reuse_src_c)` instead of
+  `TABLES_opex_4` (no `reuse_src_b` since Sb is an immediate).
+- No `Rb@negate`/`Rb@invert` bits (immediate is always literal).
+
+---
+
+## Key differences from IMAD
+
+| Feature | IMAD | IADD3 |
+|---------|------|-------|
+| Pipe | `fmalighter_pipe` | `int_pipe` |
+| Operation | `(Ra×Rb)+Rc` | `Ra+Rb+Rc` |
+| Width modes | LO/WIDE/HI | 32-bit only |
+| Predicate inputs | 1 (Pg) | **3** (Pg, Pu, Pv) |
+| X-mode inversion | `[~]` on Rc only | `[~]` on **all three** sources |
+| IMUL pseudo | Yes (Ra=RZ → IMUL) | No (Rc=RZ → IADD) |
+| Immediate slot | 32-bit (in Rb or Rc slot) | 32-bit (in Sb slot only) |
+
+---
+
+## Conditions (legality assertions)
+
+Key constraints unique to IADD3:
+
+### Simultaneous negate ban
+```
+(Ra@negate == 1) -> (Rb@negate == 0)    // reason: nA-Rb
+(Rb@negate == 1) -> (Ra@negate == 0)    // reason: Ra-nB
+```
+Same for X-mode: `(Ra@invert) -> ¬(Rb@invert)`.
+
+### Register range
+All register operands ≤ `%MAX_REG_COUNT-1`, ≠ `R254`.
+
+### opex
+`TABLES_opex_4` (or `_3` for imm) must be a valid combination; `.reuse` is
+mutually exclusive with DRAIN/WAIT scheduling tokens.
+
+---
+
+## Pipe and latency
+
+| Property | Value |
+|----------|-------|
+| Pipe | `int_pipe` |
+| IADD3 OPERATION SET | `{IADD3, IADD3int_pipe, IADD, IADDint_pipe, IADD32I, IADD32Iint_pipe}` |
+| INST_TYPE | `INST_TYPE_COUPLED_MATH` |
+
+### True dependency latency (TABLE_TRUE, FXU_OPS)
+
+IADD3 shares the FXU latency matrix:
+```
+FXU_OPS {Rd @1, Rd2 @0} : 6 6 6 6 6 6 6 8 6 6 7 7 7 7 7 7 6 8
+```
+
+Shortest true-dep latency is **6 cycles** (vs 4–5 for IMAD on fmalighter).
+
+---
+
+## Empirical confirmation (sm_90, CUDA 13.1)
+
+All operand forms and X-mode verified via `nvcc -arch=sm_90 -O3` →
+`cuobjdump -arch sm_90 -sass`.
+
+### Confirmed forms
+
+| Form | SASS | opcode |
+|------|------|:---:|
+| RRR (3-reg) | `IADD3 R5, R0, R5, R4` | 0x210 |
+| RRR (2-op, Rc=RZ) | `IADD3 R5, R5, R4, RZ` | 0x210 |
+| RsIR (imm) | `IADD3 R5, R4, 0x2a, R5` | 0x810 |
+| RsIR (imm+RZ) | `IADD3 R7, R2, 0x1, RZ` | 0x810 |
+| RRR (neg Rc) | `IADD3 R5, R0, R4, -R5` | 0x210 |
+| UIADD3 | `UIADD3 UR4, UP0, UR4, UR6, URZ` | 0x1290 |
+| UIADD3.X | `UIADD3.X UR5, UR5, UR7, URZ, UP0, !UPT` | 0x1290 |
+
+### Negate encoding
+`IADD3 R5, R0, R4, -R5` vs plain: only bit [75] differs (Rc_neg=1).
+
+### Pu/Pv predicate inputs
+In all observed cases, `Pu=7, Pv=7` (PT = predicate-true). The disassembler
+omits them since they're the default. These are compiler-inserted for
+uniform-branch-optimization when the add feeds a conditional.
+
+### 64-bit add via UIADD3.X
+The compiler lifts GPR-based 64-bit addition to the uniform path:
+```
+UIADD3   UR4, UP0, UR4, UR6, URZ          ; bits[31:0]
+UIADD3.X UR5, UR5, UR7, URZ, UP0, !UPT    ; bits[63:32] with carry
+```
+The GPR-based IADD3.X chain was not triggered by the test; the uniform path
+is preferred on sm_90. The form exists in the spec and shares the same opcodes
+as the plain IADD3 RUR class with `/XONLY:X`.
+
+### Common compiler patterns
+
+**Address index calc:**
+```
+IADD3 R7, R2, 0x1, RZ      ; R7 = R2 + 1 (simple increment)
+```
+
+**Two-operand add (most common):**
+```
+IADD3 R5, R5, R4, RZ        ; R5 = R5 + R4  (emitted for PTX add.s32)
+```
+The `IADD` mnemonic shown in some contexts is an alias for the IADD3 encoding
+with Rc=RZ.
+
+**Subtract via negate:**
+```
+IADD3 R5, R0, R4, -R5       ; R5 = R0 + R4 - R5 (PTX sub.s32)
+```
+
+---
+
+## Open questions
+
+1. **Pu/Pv non-default values** — the spec defines `Pu` and `Pv` as `Predicate("PT")`
+   type, but all observed cases use PT (value 7). Non-default values would be used
+   for uniform-branch optimization (latency hiding via predicate control). Need a
+   kernel with divergent control flow to trigger.
+
+2. **GPR-level IADD3.X** — empirically confirmed only for `UIADD3.X`. The GPR-level
+   `iadd3_x_noimm__RRR_RRR` class exists in the spec but was not triggered by the
+   test kernels (compiler prefers uniform-path for carry chains on sm_90).
+
+3. **IADD alias** — `IADD` appears in the OPERATION SETS alongside `IADD3`;
+   likely an assembler alias mapping to IADD3 with Rc=RZ.

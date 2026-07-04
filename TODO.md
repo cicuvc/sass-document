@@ -10,7 +10,7 @@ Tags: `-> MNEM` = ref_memo entry maps to this canonical sm_90 SASS mnemonic (sha
 ## Integer Arithmetic
 - [x] **IMAD** (idx 1) — Integer multiply-add (32-bit)
 - [x] **IMAD_WIDE** (idx 2) — Integer multiply-add, 32x32->64 result  `-> IMAD`
-- [ ] **IADD3** (idx 3) — Three-input integer add with carry
+- [x] **IADD3** (idx 3) — Three-input integer add with carry
 - [ ] **BMSK** (idx 4) — Generate bitmask from position and width
 - [ ] **SGXT** (idx 5) — Sign-extend from specified bit position
 - [ ] **LOP3** (idx 6) — Three-input logic operation (arbitrary LUT)

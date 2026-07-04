@@ -69,6 +69,7 @@ The `*_SIZE`/`*Range` predicates tie the two files together: instruction `PREDIC
 NVIDIA PTX ISA 9.3 documentation converted to markdown, plus empirical PTX→SASS mapping files. Use these when documenting an instruction to map user-visible PTX constructs to the SASS encodings studied here.
 
 - `ptx2sass-int-mad.md` — `mad`/`mul`/`mad.cc`/`madc` → IMAD/IMAD.WIDE/IMAD.HI/IMAD.X/UIMAD (verified sm_90, CUDA 13.1).
+- `ptx2sass-int-add.md` — `add`/`sub`/`add.cc`/`addc` → IADD3/IADD3.X/UIADD3 (verified sm_90, CUDA 13.1).
 - `instructions/` — per-PTX-instruction reference files (216 files).
 - `09.7.*.md` — per-instruction-family PTX spec chapters.
 
