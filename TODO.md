@@ -80,13 +80,13 @@ Tags: `-> MNEM` = ref_memo entry maps to this canonical sm_90 SASS mnemonic (sha
 - [ ] **VABSDIFF4** (idx 32) — Vector absolute difference, 4-way
 
 ## Memory — Load/Store
-- [ ] **LDC** (idx 89) — Load from constant memory bank c[bank][offset]
-- [ ] **LDS** (idx 94) — Load from shared memory
-- [ ] **STS** (idx 95) — Store to shared memory
-- [ ] **LDG** (idx 96) — Load from global memory
-- [ ] **STG** (idx 97) — Store to global memory
-- [ ] **LDL** (idx 98) — Load from local memory (per-thread stack)
-- [ ] **STL** (idx 99) — Store to local memory
+- [x] **LDC** (idx 89) — Load from constant memory bank c[bank][offset]
+- [x] **LDS** (idx 94) — Load from shared memory
+- [x] **STS** (idx 95) — Store to shared memory
+- [x] **LDG** (idx 96) — Load from global memory
+- [x] **STG** (idx 97) — Store to global memory
+- [x] **LDL** (idx 98) — Load from local memory (per-thread stack)
+- [x] **STL** (idx 99) — Store to local memory
 - [ ] **LD** (idx 100) — Load, generic address space
 - [ ] **ST** (idx 101) — Store, generic address space
 
