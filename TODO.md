@@ -92,9 +92,9 @@ Tags: `-> MNEM` = ref_memo entry maps to this canonical sm_90 SASS mnemonic (sha
 
 ## Atomic and Reduction
 - [ ] **ATOM** (idx 102) — Atomic operation (generic address space)
-- [ ] **ATOMG** (idx 103) — Atomic operation (global memory)
-- [ ] **RED** (idx 104) — Reduction (global memory, fire-and-forget)
-- [ ] **ATOMS** (idx 105) — Atomic operation (shared memory)
+- [x] **ATOMG** (idx 103) — Atomic operation (global memory)
+- [x] **RED** (idx 104) — Reduction (shared memory, → ATOMS on sm_90)
+- [x] **ATOMS** (idx 105) — Atomic operation (shared memory)
 
 ## Cache and Memory Control
 - [ ] **QSPC** (idx 106) — Query address space type
