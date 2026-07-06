@@ -56,7 +56,7 @@ Tags: `-> MNEM` = ref_memo entry maps to this canonical sm_90 SASS mnemonic (sha
 - [ ] **I2IP** (idx 36) — Integer to integer, packed variant
 - [ ] **F2F** (idx 43) — Float to float conversion (precision change)
 - [ ] **F2F_X** (idx 44) — Float to float, extended (with carry chain)  `-> F2F`
-- [ ] **F2I** (idx 45) — Float to integer
+- [x] **F2I** (idx 45) — Float to integer
 - [ ] **F2I_X** (idx 46) — Float to integer, extended  `-> F2I`
 - [ ] **I2F** (idx 47) — Integer to float
 - [ ] **I2F_X** (idx 48) — Integer to float, extended  `-> I2F`
@@ -104,19 +104,19 @@ Tags: `-> MNEM` = ref_memo entry maps to this canonical sm_90 SASS mnemonic (sha
 - [ ] **MEMBAR** (idx 111) — Memory barrier (fence)
 
 ## Control Flow
-- [ ] **BRA** (idx 67) — Branch (relative)
-- [ ] **BRX** (idx 68) — Branch indirect (register target)
-- [ ] **JMP** (idx 69) — Jump (absolute)
-- [ ] **JMX** (idx 70) — Jump indirect
+- [x] **BRA** (idx 67) — Branch (relative)
+- [x] **BRX** (idx 68) — Branch indirect (register target)
+- [x] **JMP** (idx 69) — Jump (absolute)
+- [x] **JMX** (idx 70) — Jump indirect  _(+ JMXU uniform variant; see notes/jmx.md)_
 - [ ] **CALL** (idx 71) — Function call
 - [ ] **RET** (idx 72) — Return from function
-- [ ] **BSSY** (idx 73) — Push convergence point onto branch sync stack
-- [ ] **BREAK** (idx 74) — Break out of convergence region
+- [x] **BSSY** (idx 73) — Push convergence point onto branch sync stack
+- [x] **BREAK** (idx 74) — Break out of convergence region
 - [ ] **EXIT** (idx 77) — Thread exit
 - [ ] **KILL** (idx 76) — Kill thread (discard fragment)
 - [ ] **BPT** (idx 75) — Breakpoint trap (debugger)
 - [ ] **RTT** (idx 78) — Return to trap handler
-- [ ] **BSYNC** (idx 79) — Branch sync (pop convergence stack, reconverge)
+- [x] **BSYNC** (idx 79) — Branch sync (pop convergence stack, reconverge)
 
 ## Synchronization and Warp
 - [ ] **BMOV_B** (idx 54) — Barrier move (barrier register, B variant)  `-> BMOV`
@@ -126,7 +126,7 @@ Tags: `-> MNEM` = ref_memo entry maps to this canonical sm_90 SASS mnemonic (sha
 - [ ] **R2B** (idx 59) — GPR to barrier register
 - [ ] **BAR** (idx 61) — Named barrier synchronization
 - [ ] **BAR_INDEXED** (idx 62) — Barrier, indexed variant  `-> BAR`
-- [ ] **DEPBAR** (idx 66) — Dependency barrier (wait for scoreboard)
+- [x] **DEPBAR** (idx 66) — Dependency barrier (wait for scoreboard)
 - [ ] **MATCH** (idx 80) — Warp match (find lanes with same value)
 - [ ] **SHFL** (idx 119) — Warp shuffle (cross-lane data exchange)
 - [ ] **WARPSYNC** (idx 120) — Warp-wide synchronization barrier
@@ -181,7 +181,7 @@ Tags: `-> MNEM` = ref_memo entry maps to this canonical sm_90 SASS mnemonic (sha
 - [ ] **LDSM** (idx 166) — Load from shared memory to matrix register
 - [ ] **LDTRAM** (idx 167) — Load from TRAM (transposed shared memory)
 - [ ] **S2UR** (idx 169) — Special register to uniform register
-- [ ] **BRXU** (idx 170) — Branch indirect, uniform target
+- [x] **BRXU** (idx 170) — Branch indirect, uniform target
 - [ ] **GATHER** (idx 173) — Gather (multi-address load)
 - [ ] **GENMETADATA** (idx 174) — Generate metadata (for sparse MMA)
 - [ ] **SPMETADATA** (idx 175) — Sparse metadata
@@ -199,7 +199,7 @@ Tags: `-> MNEM` = ref_memo entry maps to this canonical sm_90 SASS mnemonic (sha
 - [ ] **IMMA_16832** (idx 187) — Integer MMA, 16x8x32  `-> IMMA`
 - [ ] **IMMA_SP_16832** (idx 188) — Integer sparse MMA, 16x8x32  `-> IMMA`
 - [ ] **ARRIVES** (idx 189) — Async barrier arrive signal
-- [ ] **LDGDEPBAR** (idx 190) — Load-global dependency barrier
+- [x] **LDGDEPBAR** (idx 190) — Load-global dependency barrier
 - [ ] **LDGSTS** (idx 191) — Load-global, store-to-shared (async copy)
 - [ ] **REDUX** (idx 192) — Warp-wide reduction (uniform result)
 - [ ] **F2IP** (idx 195) — Float to integer, packed
@@ -241,7 +241,7 @@ Tags: `-> MNEM` = ref_memo entry maps to this canonical sm_90 SASS mnemonic (sha
 - [ ] **STSM** (idx 231) — Store to shared memory, matrix layout
 
 ## Synchronization Extensions
-- [ ] **SYNCS_BASIC** (idx 232) — Sync scope, basic  `-> SYNCS`
+- [x] **SYNCS_BASIC** (idx 232) — Sync scope, basic  `-> SYNCS`
 - [ ] **SYNCS_LD_UNIFM** (idx 233) — Sync scope with uniform load  `-> SYNCS`
 
 ## Uniform Block Operations
@@ -250,8 +250,8 @@ Tags: `-> MNEM` = ref_memo entry maps to this canonical sm_90 SASS mnemonic (sha
 - [ ] **UBLKPF** (idx 236) — Uniform block prefetch
 - [ ] **ULEPC** (idx 238) — Uniform load effective PC
 - [ ] **UTMACCTL** (idx 240) — TMA cache control
-- [ ] **UTMACMDFLUSH** (idx 241) — TMA command flush
-- [ ] **UTMALDG** (idx 242) — TMA load global
+- [x] **UTMACMDFLUSH** (idx 241) — TMA command flush
+- [x] **UTMALDG** (idx 242) — TMA load global
 - [ ] **UTMAPF** (idx 243) — TMA prefetch
 - [ ] **UTMREDG** (idx 244) — TMA reduction global  `-> UTMAREDG`
 - [ ] **UTMALST** (idx 245) — TMA load/store  `-> UTMASTG(?)`
@@ -262,7 +262,7 @@ Tags: `-> MNEM` = ref_memo entry maps to this canonical sm_90 SASS mnemonic (sha
 - [ ] **VIADDMNMX** (idx 248) — Vector integer add with min/max
 - [ ] **VIMNMX** (idx 249) — Vector integer min/max
 - [ ] **VIMNMX3** (idx 250) — Vector integer three-input min/max
-- [ ] **WARPGROUP** (idx 251) — Warpgroup collective operation
+- [x] **WARPGROUP** (idx 251) — Warpgroup collective operation
 
 ---
 ## Excluded (texture / surface / graphics)
