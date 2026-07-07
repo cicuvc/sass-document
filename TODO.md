@@ -207,10 +207,10 @@ Tags: `-> MNEM` = ref_memo entry maps to this canonical sm_90 SASS mnemonic (sha
 - [ ] **I2FP** (idx 197) — Integer to float, packed
 
 ## CGA Barriers and Synchronization
-- [ ] **ACQBLK** (idx 207) — Acquire block (CTA resource acquisition)  `-> ACQBULK`
-- [ ] **CGABAR_ARV** (idx 208) — CGA barrier arrive  `-> UCGABAR_ARV`
-- [ ] **CGABAR_GET** (idx 209) — CGA barrier get (query state)  `-> UCGABAR_GET`
-- [ ] **CGABAR_SET** (idx 210) — CGA barrier set  `-> UCGABAR_SET`
+- [x] **ACQBLK** (idx 207) — Acquire block (CTA resource acquisition)  `-> ACQBULK`
+- [x] **CGABAR_ARV** (idx 208) — CGA barrier arrive  `-> UCGABAR_ARV`
+- [x] **CGABAR_GET** (idx 209) — CGA barrier get (query state)  `-> UCGABAR_GET`
+- [x] **CGABAR_SET** (idx 210) — CGA barrier set  `-> UCGABAR_SET`
 - [ ] **CGABAR_WAIT** (idx 211) — CGA barrier wait  `-> UCGABAR_WAIT`
 - [ ] **CGAERRBAR** (idx 212) — CGA error barrier
 
@@ -230,7 +230,7 @@ Tags: `-> MNEM` = ref_memo entry maps to this canonical sm_90 SASS mnemonic (sha
 ## Memory Extensions
 - [ ] **LDCU** (idx 222) — Load constant, uniform (warp-coherent constant load)  `-> LDC variant? (unresolved)`
 - [ ] **LEPC** (idx 223) — Load effective PC (sm_90 variant)
-- [ ] **PREEXIT** (idx 225) — Pre-exit (cleanup before thread exit)
+- [x] **PREEXIT** (idx 225) — Pre-exit (griddepcontrol.launch_dependents / PDL)
 - [ ] **R2UR_H** (idx 226) — Register to uniform register, high half  `-> R2UR`
 - [ ] **REDAS** (idx 227) — Reduction, async (fire-and-forget with arrive)
 
@@ -242,7 +242,7 @@ Tags: `-> MNEM` = ref_memo entry maps to this canonical sm_90 SASS mnemonic (sha
 
 ## Synchronization Extensions
 - [x] **SYNCS_BASIC** (idx 232) — Sync scope, basic  `-> SYNCS`
-- [ ] **SYNCS_LD_UNIFM** (idx 233) — Sync scope with uniform load  `-> SYNCS`
+- [x] **SYNCS_LD_UNIFM** (idx 233) — Sync scope with uniform load  `-> SYNCS`
 
 ## Uniform Block Operations
 - [ ] **UBLKCP** (idx 234) — Uniform block copy
