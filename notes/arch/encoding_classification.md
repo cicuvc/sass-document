@@ -1,5 +1,7 @@
 # SASS Encoding Classification — Top-Down Analysis
 
+![Encoding diagrams](encoding_diagrams.png)
+
 All SASS instructions are **128-bit** (hi64 [127:64] + lo64 [63:0]) with a common
 control-word overlaying a variable operands+opcode region.
 
