@@ -161,9 +161,265 @@ lowered to **ULDC** by ptxas, regardless of the addressing mode:
 | Kernel param (output buffer) | `LDC.64 R2, c[0x0][0x210]` |
 | Constant var at static offset | `LDC R5, c[0x3][RZ]` (bank>0, offset=0) |
 
-The `ldc__RaNonRZ` (indexed register) variant is **never emitted** by ptxas on
-sm_75, sm_80, or sm_90. The `.IL`/`.IS`/`.ISL` addressing modes are also absent
-from all empirical traces. These are likely driver/runtime-internal only.
+The `.IL`/`.IS`/`.ISL` addressing modes are absent from all empirical traces and
+are likely driver/runtime-internal only.
+
+> **Update:** a *true* register-indexed `LDC Rd, c[0x0][R+imm]` (`ldc__RaNonRZ`)
+> **is** emitted when a `__grid_constant__` parameter is indexed with a runtime
+> value (dynamic subscript into an in-cbank param array). See the preset-region
+> probe below — this is what enables reading arbitrary bank-0 offsets.
+
+## Constant bank 0 (`c[0x0]`) preset-region layout — empirical
+
+`c[0x0]` is split into a **driver-preset region** (`0x000`–`0x20f`) and the
+**kernel-parameter region** (from `0x210`). The three fixed preset slots the SASS
+prologue references are stable across kernel signatures (verified on 3 differently-
+typed kernels, sm_90, CUDA 13.1):
+
+**Verified slots** (each proven by a targeted H800 experiment — the value was made
+to change with a known launch input, or matched against a `cvta`/`EIATTR` ground
+truth). These supersede the "hypothesis map" further below where they overlap:
+
+| Offset | Width | Meaning | Proof (repro) |
+|--------|-------|---------|---------------|
+| `0x00` | 32b | `blockDim.x` (ntid.x) | launch `block(2,4,6)` → `2` (`ldc_dims_probe.cu`) |
+| `0x04` | 32b | `blockDim.y` | → `4` |
+| `0x08` | 32b | `blockDim.z` | → `6` |
+| `0x0c` | 32b | `gridDim.x` (nctaid.x) | launch `grid(3,5,7)` → `3` |
+| `0x10` | 32b | `gridDim.y` | → `5` |
+| `0x14` | 32b | `gridDim.z` | → `7` |
+| `0x18` | 64b | **shared** memory window base (generic) = `{SR_SWINHI, SWINLO}` | `== __cvta_shared_to_generic(0)` (`ldc_winbase_verify.cu`) |
+| `0x20` | 64b | **local** memory window base (generic), i.e. `cvta.local` base | `== &loc − __cvta_generic_to_local(&loc)` (`ldc_winbase_verify.cu`) |
+| `0x28` | 32b | per-thread local/stack frame base → `R1` | `LDC R1, c[0x0][0x28]`; `DW_CFA_def_cfa R1,+frame` |
+| `0x2c` | 32b | dynamic shared-memory size | launch `…,3072` → `0xc00` (`ldc_midregion_probe.cu`) |
+| `0x30` | 32b | per-context **launch serial counter** | increments +1 every launch in the sweep (1,2,…,c) |
+| `0x44`:`0x48` | 64b | **cooperative-grid sync barrier ptr** (hi@`0x44`, lo@`0x48`) | nonzero *only* under `cudaLaunchCooperativeKernel`; else `0` |
+| `0x110` | 32b | **cooperative-launch flag** | `1` only for coop launch, else `0` |
+| `0x13c` | 32b | shared allocation top = `0x400` + dyn-smem size | `0x400` base; `→0xc00` with 2048-byte dyn smem |
+| `0x144`/`0x148`/`0x14c` | 32b×3 | **cluster dims** {x,y,z} | `cluster(4,1,1)` → `0x144=4` |
+| `0x150`/`0x154`/`0x158` | f32×3 | **`1.0f / clusterDim.{x,y,z}`** (reciprocals for rank decode) | `clusterDim.x=4` → `0x150=0x3e800000`=0.25f |
+| `0x15c`/`0x160`/`0x164` | 32b×3 | **grid size in cluster units** = gridDim/clusterDim | `grid(8),cluster(4)` → `0x15c=2`; else = gridDim |
+| `0x16c` | 32b | `0x0100_0000` = `1<<24`, DSMEM per-CTA slice width | constant across all configs |
+| `0x208` | 64b | **global** memory descriptor (`= 0`) | `ULDC.64 URn,c[0x0][0x208]` → `STG.E desc[URn]` |
+| `0x210` | var | kernel parameter block base | `EIATTR_PARAM_CBANK` low16 = `0x210` |
+
+### Launch-config sweep (definitive slot identification)
+
+`tests/cbank0_sweep.cu` dumps the whole preset region under 12 launch configs
+(baseline; each `blockDim`/`gridDim` axis; large grid; dyn-smem; cluster dims;
+cooperative) and reports which slots move with which input. This is how the
+launch-shape slots above were pinned — each changes iff its corresponding launch
+parameter changes. Highlights:
+
+- **`0x44:0x48` resolves the cusparse mystery**: it is the cross-grid (cooperative)
+  barrier object pointer. `sell_find_colors_*` are cooperative kernels — their
+  `ISETP.NE.EX …UR12/UR13; @P0 BRA … else BPT.TRAP` prologue is the "you must launch
+  me cooperatively" guard (traps when the barrier ptr is null). Word order is
+  hi@`0x44`, lo@`0x48` (matching the `ULDC UR12,[0x48]; ULDC UR13,[0x44]` pairing).
+- **Cluster block** (`0x140`–`0x188`): dims at `0x144/48/4c` (dup at `0x188`),
+  reciprocals at `0x150/54/58`, grid-in-clusters at `0x15c/60/64`, `0x140`=cluster-present
+  flag. `cluster(2,2,1)` failed to launch (misconfig on this GPU) so y/z dims are
+  inferred from the x-axis behavior.
+- Several **driver ring pointers** advance by a fixed stride per launch (`0x38` by
+  `0x800`, `0xc0:0xc4` by `0x10000`) — internal launch/desc ring buffers, not kernel-visible.
+
+### No SM-frequency or power values in the preset region
+
+Checked explicitly (`tests/cbank0_hwprops.cu`, `tests/cbank0_loadtest.cu`): the region
+carries **no clock or power telemetry**.
+- The SM clock (1,755,000 kHz) and memory clock (1,593,000 kHz) do **not** appear in
+  any unit (kHz `0x1ac778`, MHz `0x6db`, or Hz `0x689b2cc0`) at any offset.
+- Under a sustained FMA burn the GPU swung **power 49→144 W** and **clock 345↔1755 MHz**,
+  yet the only slots that changed were the launch counter (`0x30`) and the driver ring
+  pointers (`0x38`, `0xc0`, and the `0xc0`-derived `0x198`/`0x1a0`) — launch-sequencing
+  artifacts, unrelated to power/clock. Every capability/shape slot was byte-identical
+  idle vs. under load.
+- This is expected: the preset region is populated once at launch setup, so a live
+  frequency/power reading has no place there. Runtime timing instead comes from special
+  registers — `clock64()` → `S2R …, SR_CLOCKLO/HI`; wall-clock → `SR_GLOBALTIMERLO/HI`.
+
+The **only** hardware-capability constant found is `0x10c = multiProcessorCount`
+(SM count, `114` on H800 PCIe). Other stable constants (`0x40`, `0x68`, `0x1a8`,
+`0x3c`) are size/quota-like driver values, none clock- or power-derived.
+
+### Shared-memory layout is present; L1/shared *carveout* is not
+
+`tests/cbank0_smem_carveout.cu` sweeps dynamic-smem size (0…200 KB) and the
+L1/shared **carveout** preference (`MaxL1`, `MaxShared`, `50%`, default). Results:
+
+- **Size/layout slots (present):**
+  - `0x2c` = dynamic shared-memory size (0→`0x8000` at 32 KB, `0x32000` at 200 KB)
+  - `0x13c` = `0x400` + dynamic size (top of the shared allocation)
+  - `0x114` = `0x400` (shared-window base offset — the reserved first 1 KB, same value
+    the prologue materializes as the `UMOV UR4,0x400` immediate)
+  - `0x16c` = `1<<24` (DSMEM per-CTA slice width)
+- **Carveout (NOT present):** switching `cudaFuncAttributePreferredSharedMemoryCarveout`
+  between MaxL1 / MaxShared / 50% changed **no** preset slot (the `dyn=0` columns and
+  the `dyn=8K` columns are byte-identical apart from the launch counter/ring pointers).
+
+Conclusion: the kernel is told *how much* dynamic shared memory it has (`0x2c`,`0x13c`)
+and the shared-window geometry (`0x114`,`0x16c`), but the **L1↔shared split** is a
+physical SM configuration the driver programs into the SM's config registers at launch;
+it is never surfaced to kernel code through the constant bank. (Bank-width config, the
+old `cudaSharedMemConfig`, is likewise fixed at 4-byte on sm_90 and absent here;
+`SR_SMEMBANKS`/`SR_SMEMSZ` special registers exist if a kernel needs those at runtime.)
+
+### Register count / local / static-shared footprint is NOT in the preset region
+
+The per-function code attributes reported by `cudaFuncGetAttributes` live in the ELF
+`EIATTR_*` metadata (and drive SM hardware config), **not** in `c[0x0]`. Verified with
+`tests/cbank0_funcattr.cu` + `tests/cbank0_localbacking.cu`:
+
+| `cudaFuncAttributes` field | varied | preset slot? | actually stored in |
+|----------------------------|--------|:---:|--------------------|
+| `numRegs` | 8 → 14 | none changed | `EIATTR_REGCOUNT` (ELF) |
+| `localSizeBytes` | 0 → 1 KB → 32 KB → 64 KB | none changed | `EIATTR_FRAME_SIZE`/`MIN_STACK_SIZE`; the frame is the `VIADD R1,-N` immediate, base at `0x28` |
+| `sharedSizeBytes` (static) | — | none | ELF EIATTR + computed offsets |
+| `maxThreadsPerBlock` | 1024 → 128 | none (`0x80` never appeared) | `EIATTR_MAX_THREADS` |
+| `constSizeBytes` | — | — | `EIATTR_PARAM_CBANK` size |
+
+Notably, launching 64 KB/thread of local at full occupancy (228×1024 threads)
+allocated a **~14 GB local backing store** (free mem 80→66 GB) yet moved **no** preset
+slot — so `0x40`/`0x1a8` are *not* the local backing-store size either; they remain
+unidentified stable driver constants (definitively **not** register/local/freq/power/
+memory-size derived). A kernel never needs to read its own register/local/shared counts
+at runtime: they are fixed at compile time and baked into the SASS/ELF.
+
+The cluster-related `cudaFuncAttributes` (`requiredClusterWidth`,
+`clusterSchedulingPolicyPreference`, …) *do* have launch-time analogues in the preset
+region — the cluster block at `0x140`–`0x188` (dims, reciprocals, grid-in-clusters).
+
+Key relationships confirmed:
+- All three memory *windows* have a generic base in this region: **shared** `0x18:0x1c`,
+  **local** `0x20:0x24`, plus the stack offset `0x28` and the global descriptor `0x208`.
+- The **shared-space** (STS/LDS) *offset* base `0x400` is **not** read from here — it
+  is an immediate (`UMOV UR4,0x400`) added to `SR_CgaCtaId<<24`; see `sts.md`
+  "Shared-memory address model". `c[0x0][0x18:0x1c]` is the *generic* (cvta) base,
+  a different quantity.
+- `EIATTR_PARAM_CBANK` / `EIATTR_CBANK_PARAM_SIZE` / `EIATTR_FRAME_SIZE` in
+  `.nv.info.<kernel>` corroborate the `0x210` base, param size, and the `R1 -=` frame.
+
+### Library mining — which preset slots real code reads
+
+`cuobjdump -arch sm_90 -sass` over the CUDA 13 math libs, counting `LDC/ULDC c[0x0][off]`
+with `off < 0x210` (`/tmp` scan; per-lib counts):
+
+| Lib | preset offsets read |
+|-----|---------------------|
+| libcublas | `0x00,04,08,0c,10,14` (dims), `0x28` (4137×), `0x208` (3801×) — nothing else |
+| libcurand | `0x00,04,08,0c`, `0x28`, `0x208` |
+| libcusolver | dims, `0x28`, `0x208`, + `0x6c` (20×) |
+| libcusparse | dims, `0x28`, `0x208`, + `0x20/0x24` (26× — `cvta.local`), + `0x44/0x48` (11×) |
+| libcufft | (no sm_90 SASS in this build) |
+
+Takeaway: real kernels overwhelmingly touch only **dims + stack base (`0x28`) + global
+descriptor (`0x208`)**. The window-base slots (`0x18`,`0x20`) appear only when a kernel
+forms a generic pointer to shared/local (cusparse `cvta.local`). `0x44/0x48` (cusparse
+`sell_find_colors_*`) is now **resolved** as the cooperative-grid barrier pointer (see
+sweep below). `0x6c` (cusolver `sort_diag_of_T`) reads `0` under every tested config
+(block/grid/dyn-smem/cluster/coop) — still unidentified; its cusolver use sits in a
+`assert(gridDim==1)`-style path, so it may be a slot only populated by an internal
+launch route.
+
+### Reading the preset region (methodology)
+
+PTX forbids immediate `.const` addresses (`ld.const.u32 %r,[0x208]` →
+*"Immediate addresses allowed only for .local state space"*). Instead, dynamically
+index a `__grid_constant__` param, which ptxas lowers to register-indexed
+`LDC Rd, c[0x0][R + 0x210]`; a **negative** index reaches the preset region below
+the param base. Repro: `tests/ldc_dump_const.cu`.
+
+Offset math validated by planting sentinels in the grid-constant payload
+(`0xdeadbeef/0xcafebabe/0x12345678` read back exactly at `0x210/0x214/0x218`).
+
+### Global memory descriptor value (H800 PCIe, driver 580.82.07, CUDA 12.8)
+
+```
+c[0x0][0x208..0x20f] = 0x0000000000000000
+```
+
+The default global memory descriptor is **all-zero**. Confirmation is self-consistent:
+the probe kernel's own `out[i] = …` compiles to `STG.E desc[UR][…]` with `UR` loaded
+from `c[0x0][0x208]` (= 0), and the store returns correct data — so `desc[UR=0]`
+**is** the functional "generic global" descriptor. The value is stable across launches,
+whereas the adjacent slot `0x200/0x204` is a per-launch cookie (changes every run).
+
+### Full preset-region layout (hypothesis map — partially verified)
+
+> **Status:** this map was seeded by a broad single-run dump before the targeted
+> experiments above. Rows that the "Verified slots" table now confirms/corrects are
+> marked inline; the rest are **retained as unverified hypotheses**. Where the two
+> disagree, the verified table wins.
+
+Dumped on H800 PCIe, driver 580.82.07, CUDA 12.8, `<<<1,1>>>` kernel.
+Values are from a single run; per-launch cookies and ASLR-dependent pointers
+will vary across invocations. Structural quantities (sizes, offsets, constants)
+are expected stable. Repro: `tests/cbank0_dump.cu`.
+
+#### Confirmed fixed slots
+| Offset | Width | Value (this run) | Meaning | Proof |
+|--------|-------|----------|---------|-------|
+| `0x28` | 64b | `0x00fffdc0_00000000` | per-thread local/stack base | SASS `LDC R1, c[0x0][0x28]`; `DW_CFA_def_cfa R1,+frame` |
+| `0x114` | 32b | `0x00000400` | shared-window **base offset** (reserved first 1 KB) — constant `0x400`; the prologue uses the same value as an immediate (`UMOV UR4,0x400`) rather than reading it. Paired with `0x13c` = `0x400`+dyn-smem (allocation top). |
+| `0x134` | 32b | `0x00000400` | duplicate `0x400` slot (unverified) |
+| `0x208` | 64b | `0x00000000_00000000` | global memory descriptor | SASS `ULDC.64 URn, c[0x0][0x208]` → `STG.E desc[URn]` |
+| `0x200` | 64b | varies | per-launch cookie / CGA ID | changes every run; zero in first run, non-zero in others |
+
+#### Size / quota hypothesis (scope: per CTA, SM, or kernel)
+| Offset | Value | Decimal | Hypothesis |
+|--------|-------|---------|------------|
+| `0x38` | `0x04c0_c000` | 79,691,776 (~76 MiB) | ~~local/stack window size~~ **CORRECTED:** advances by `0x800` every launch (ring buffer ptr low half), not a size |
+| `0x40` | `0x0384_32c8` | 58,995,400 | constant across all configs *and* under load; another driver value (unverified; **not** clock/power) |
+| `0x68` | `0x0120` | 288 | constant; unknown (unverified; not clock/power) |
+| `0x16c` | `0x0100_0000` | 16,777,216 | **RESOLVED:** `1<<24` = DSMEM per-CTA slice width; constant across all configs |
+| `0x10c` | `0x72` | 114 | **RESOLVED:** `multiProcessorCount` (SM count) — H800 PCIe = 114 SMs |
+| `0x1a8` | `0x04e0_0000` | 81,788,928 (78 MiB) | constant; likely local-memory backing-store size (unverified; not clock/power) |
+| `0x3c` | `0x2` | 2 | constant; unknown (unverified) |
+| `0x1ac` | `0x2` | 2 | constant; unknown (unverified) |
+
+#### Driver pointer table (hypothesis: function descriptor table / CBU page table)
+All share same high-32b base in this run (`0x00007f6f_…`), which is ASLR-dependent.
+
+| Offset | 64-bit value | Hypothesis |
+|--------|-------------|------------|
+| `0x20` | `0x00007f6f_f5000000` | **RESOLVED — not a driver pointer:** this is the **local-memory window generic base** (`0x20:0x24`, 64-bit); `== cvta.local` base. See Verified slots. |
+| `0x24` | (hi32 of `0x20`) | high 32b of the local window base |
+| `0xc0` | `0x00007f6f_ea280000` | function descriptor table base? (unverified) |
+| `0xc8` | `0x00007f6f_ea010000` | offset table (deltas: `0xea280000 − 0xea010000 = 0x270000`) |
+| `0x118` | `0x00007f6f_eb7ac200` | another table pointer |
+| `0x170` | `0x00007f70_00000000` (hi32 @ 0x174) | hi32 of a different pointer region |
+| `0x198` | `0x00007f6f_ea280210` | = `0xc0` + `0x210` → constant-bank parameter area alias |
+| `0x1a0` | `0x00007f6f_ea280318` | = `0xc0` + `0x318` → another offset into same table |
+
+The derived offsets `0xc0 + 0x210` and `0xc0 + 0x318` suggest a base table
+whose entries are at fixed displacements, with `0x210` mirroring the parameter
+base. Likely the driver's internal CBU page table or kernel descriptor vector.
+
+#### FP32 pool → cluster-dim reciprocals (RESOLVED)
+| Offset | Value | Meaning |
+|--------|-------|---------|
+| `0x150` | `0x3f800000` (1.0f) | **`1.0f / clusterDim.x`** — `cluster(4,1,1)` → `0x3e800000` (0.25f) |
+| `0x154` | `0x3f800000` (1.0f) | `1.0f / clusterDim.y` |
+| `0x158` | `0x3f800000` (1.0f) | `1.0f / clusterDim.z` |
+| `0x15c` | `0x00000001` | **grid size in cluster units .x** = gridDim.x / clusterDim.x |
+
+Not a generic FP constant pool: the three `1.0f` are per-axis **reciprocals of the
+cluster dimensions**, used to decode a linear cluster rank into 3-D by
+multiply-by-reciprocal. They only stay `1.0f` because a non-clustered launch has
+`clusterDim = (1,1,1)`. `0x15c/0x160/0x164` continue as grid-in-cluster-units.
+
+#### Launch-config / grid shape (mostly RESOLVED via sweep)
+| Offset | Value | Meaning |
+|--------|-------|------------|
+| `0x00–0x14` | six `0x00000001` | **RESOLVED:** `0x00-0x08` = `blockDim.{x,y,z}`, `0x0c-0x14` = `gridDim.{x,y,z}` |
+| `0x140` | `0x00000000` | **RESOLVED:** cluster-present flag (`1` when clustered) |
+| `0x144–0x14c` | `1, 1, 1` | **RESOLVED:** `clusterDim.{x,y,z}` (`cluster(4,1,1)`→`0x144=4`) |
+| `0x15c–0x164` | grid/cluster | **RESOLVED:** grid size in cluster units (gridDim/clusterDim) |
+| `0x188` | `0x00000001` | **RESOLVED:** duplicate of `clusterDim.x` |
+
+(Also resolved elsewhere: `0x18:0x1c` = shared window generic base; `0x2c` = dynamic
+shared-memory size; `0x30` = launch serial counter; `0x44:0x48` = cooperative barrier
+ptr; `0x110` = cooperative flag; `0x13c` = `0x400`+dyn-smem — see Verified slots + sweep.)
 
 ## Latency
 
@@ -236,8 +492,10 @@ same LDC hardware instruction with different encoding hints.
 - **`.IL` / `.IS` / `.ISL` addressing modes:** No empirical examples found.
   What specific driver/runtime scenarios trigger them, and what is the exact
   datapath difference vs `.IA`?
-- **`ldc__RaNonRZ` (indexed LDC):** On sm_90, `nvcc` converts all
-  register-indexed constant loads to ULDC + uniform address computation. Under
-  what circumstances does a true `ldc__RaNonRZ` get emitted?
+- **`ldc__RaNonRZ` (indexed LDC):** ~~Under what circumstances does a true
+  `ldc__RaNonRZ` get emitted?~~ **Resolved:** a runtime-indexed `__grid_constant__`
+  param array emits `LDC Rd, c[0x0][R+0x210]` (see preset-region section). Generic
+  `ld.const` register loads still lower to ULDC; the difference is per-thread
+  (divergent) vs uniform index.
 - **LDCU resolution:** If `LDCU` is truly a separate instruction (not just LDC),
   what is its sm_90 opcode?

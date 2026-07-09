@@ -131,6 +131,55 @@ All verified against `cuobjdump -arch sm_90 -sass` from `libcublas.so`:
 | `st.shared.v4.u32 [%ra], %rb` | `STS.128 [Ra], Rb` |
 | `__shared__` C++ store | `STS` with computed register address |
 
+## Shared-memory address model — where `Ra` (the base) comes from
+
+The `Ra` address fed to `STS`/`LDS` is **not** loaded from constant memory. Unlike
+the local/stack base (`c[0x0][0x28]`) and the global descriptor (`c[0x0][0x208]`),
+the shared window base is **computed from special registers** in the prologue:
+
+```
+S2UR UR5, SR_CgaCtaId        ; CTA rank within its cluster/CGA (0 if non-clustered)
+UMOV UR4, 0x400
+ULEA UR4, UR5, UR4, 0x18     ; UR4 = (CgaCtaId << 24) + 0x400   ← shared window base
+LEA  R0, Rtid, UR4, 0x2      ; addr = (tid<<2) + base
+STS  [R0], ...
+```
+
+So the shared-space (STS/LDS) byte address is:
+
+```
+addr = (SR_CgaCtaId << 24) + 0x400 + local_offset
+```
+
+- `0x400` — per-CTA base offset (first 1 KiB of the window is reserved).
+- `SR_CgaCtaId << 24` — **distributed shared memory (DSMEM)**: each CTA in a
+  cluster owns a 16 MiB (`1<<24`) slice; bits [31:24] select the CTA rank so a CTA
+  can address a peer's shared memory (`mapa`). Non-clustered launch ⇒ rank 0 ⇒ base
+  `0x400`.
+
+The **generic** address of shared memory (`__cvta_shared_to_generic`) prepends a
+high-32-bit window base from `SR_SWINHI`:
+
+```
+generic_ptr = { SR_SWINHI, (SR_CgaCtaId<<24)+0x400+offset }   ; hi:lo
+```
+
+### Empirical (H800 PCIe, driver 580.82.07, CUDA 12.8)
+
+Probes: `tests/smem_base_dump.cu`, `tests/smem_cluster_dsmem.cu`.
+
+| Quantity | Value | Notes |
+|----------|-------|-------|
+| shared base (offset 0, generic) | `0x00007f4d_00000000` | high 32b = `SR_SWINHI` (per-context virtual window, varies) |
+| `&smem[0]` shared offset | `0x400` | non-clustered ⇒ `CgaCtaId=0` |
+| `&smem[0]` generic | `0x00007f4d_00000400` | = base + `0x400` |
+| cluster CTA0 offset | `0x00000400` | `__cluster_dims__(2,1,1)` |
+| cluster CTA1 offset | `0x01000400` | delta = `0x0100_0000` = `1<<24` ✓ |
+
+The `1<<24` per-rank delta confirms the DSMEM slicing. See `s2ur.md`
+(`S2UR SR_CgaCtaId`), `ulea.md` (`ULEA …, 0x400, 0x18`), and `ldc.md`
+(constant-bank preset region, which does **not** hold a shared base).
+
 ## Open questions
 
 - **Stride variants `.X4`/`.X8`/`.X16`**: Not present in cublas.

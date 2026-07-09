@@ -35,7 +35,9 @@ Decoder: `tools/decode_s2r_s2ur.py` (all 9 vectors pass). Tests: `tests/s2ur_tes
 
 ### PTX→SASS mapping
 - `blockIdx.{x,y,z}` → `S2UR URd, SR_CTAID.{X,Y,Z}` when uniform
-- `SR_CgaCtaId` (136) → `S2UR` on sm_90 cluster kernels
+- `SR_CgaCtaId` (136) → `S2UR` on sm_90 cluster kernels. Also used to build the
+  **shared-memory window base** `(SR_CgaCtaId<<24)+0x400` (DSMEM per-CTA slice) —
+  see `sts.md` "Shared-memory address model".
 
 ## Open questions
 - Exact trigger heuristic for S2R vs S2UR (only observed S2UR in warp-specialized/cluster cublasLt kernels; simple kernels keep S2R even for uniform `blockIdx`).

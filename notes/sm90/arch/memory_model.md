@@ -74,6 +74,10 @@ probe**. All enum values quoted are from `sm_90_instructions.txt`.
 - **"relaxed == acquire == acq_rel same bits", "MMIO bare addressing / bypasses
   desc[UR][Rn]", "STRONG only when ordered"** — renderer/lowering behaviors,
   plausible, not encoded as such in the spec.
+  - **Empirical:** the `desc[UR]` global memory descriptor is preset by the driver
+    at `c[0x0][0x208]` (64-bit) and its default value is **`0x0`** — i.e. the
+    generic-global descriptor is all-zero (dumped on H800, verified functional; see
+    `notes/sm90/instr/ldc.md` "Constant bank 0 preset-region layout").
 - **fence.acq_rel.cluster → MEMBAR.ALL.GPU + ERRBAR;CGAERRBAR**, **fence.proxy.
   tensormap → UTMACCTL.IV**, **cp.async.* → LDGSTS(.BYPASS)** — the mnemonics
   exist; exact lowering is probe-only.
